@@ -57,6 +57,11 @@ struct rawPkt{
   size_t length;
   uint32_t convClk;
   Int_t run;
+  int vSeq;
+  double V_LED;
+  //double V_PMT;
+  //double Ve_PMT;
+
 
 };
 
@@ -106,6 +111,8 @@ public:
   double ch1_mean;
   double ch0_sig;
   double ch1_sig;
+  double LEDVoltage;
+  double LEDVoltSeq;
   double RunLength;
   uint64_t NSamples;
   int Run;
@@ -160,6 +167,7 @@ class CMData {
 private:
   
   ifstream               *SettingsFile;
+  ifstream               *LEDVoltageFile;
   ofstream               *SettingsOutFile;
   
   TTree                  *DataTree;
@@ -184,6 +192,9 @@ private:
   int                     CurrentRun;
   int                     dNRunsSeq;
   int                     dNRunSeqCnt;
+  vector<double>          LEDVoltages;
+  vector<double>          PMTVoltages;
+  vector<double>          PMTVoltagesEr;
 
   char                    Data0;
   char                    Data1;
@@ -226,11 +237,12 @@ private:
   Bool_t                  IsRootFileOpen(){return dRootFileOpen;};
   void                    SetRootFileOpen(Bool_t open = kFalse){dRootFileOpen = open;};
   void                    CloseRootFile();
-
+  void                    ReadLEDVoltageValues();
   void                    SetDataFileName(const char *name){DataFileName = name;};
   void                    CloseDataFile();
   Int_t                   SaveDataFile(ERFileStatus status, const char* file);
   TTree                  *GetDataTree() {return DataTree;};
+  
   
 public:
   CMData(int *argc, char **argv);

@@ -158,8 +158,41 @@ CMData::CMData(int *argc, char **argv)
 
 
   std::set_new_handler(0);
-
+  ReadLEDVoltageValues();
   StartDataCollection();
+
+}
+
+void CMData::ReadLEDVoltageValues()
+{
+  LEDVoltages.resize(0);
+  PMTVoltages.resize(0);
+  PMTVoltagesEr.resize(0);
+  
+  
+  double val;
+  LEDVoltageFile = NULL;
+  LEDVoltageFile = new ifstream("LEDVoltages.txt");
+  if(LEDVoltageFile){
+    if(LEDVoltageFile->is_open()){
+
+      while(!(LEDVoltageFile->eof())){
+	*LEDVoltageFile >> val;
+	
+	if(LEDVoltageFile->eof())
+	  break;
+
+	//cout << "val = " << val << endl;
+	LEDVoltages.push_back(val);
+	PMTVoltages.push_back(0);
+	PMTVoltagesEr.push_back(0);
+
+      }
+	
+      LEDVoltageFile->close();
+       
+    }
+  }
 
 }
 
@@ -326,112 +359,110 @@ void CMData::StartDataCollection()
   int flag = 0;
   //int dNRunSeqCnt = 0;
 
+  int nLev = LEDVoltages.size();
+  double vLev = 0;
+  int vcnt = 0;
+  int tmpRun = iSettings.currentRun;
+
   
   ReadNSamples = iSettings.RunLength *SAMPLES_PER_SECOND/iSettings.PreScFactor;
   //dNRunSeqCnt = 0;
-  for(int dNRunSeqCnt = 0; dNRunSeqCnt < dNRunsSeq; dNRunSeqCnt++ ){
-      
-    // if(!IsRootFileOpen()){
-      
-    //   ROOTFileName = Form("Int_Run_%03d-%03d.root",iSettings.currentRun,iSettings.currentRun+dNRunsSeq-1);	
-    //   OpenRootFile(ROOTFileName.Data());
-    // }
-    
-    SamplesOutFileName = Form("Int_Run_%03d.dat",iSettings.currentRun);
-    
-    //GetSocket(...) sets the global pointers cntr_socket or data_socket
-    //make sure they are close before opening them again for a new message/data transfer.
-    if(data_socket) {
-      zmq_close(data_socket);
-      data_socket = NULL;
-    }
-    if(cntr_socket) {
-      zmq_close(cntr_socket);
-      cntr_socket = NULL;
-    }
-    
-    //Set the board up with the correct channels, prescale, and packet size 
-    csocket = GetSocket(CNTRL);
-    ADCMessage(WRITE,csocket,reg1,cntrmsg,&retmsg);
-    ADCMessage(WRITE,csocket,reg2,ratemsg,&retmsg);
-    
-    //Read back the convert time delay used in the conversion of the time stamp
-    ADCMessage(READ,csocket,reg2,0,&retmsg);
-    convert_clocks = (retmsg >> 16) & 0xFF;
-    if(convert_clocks < MIN_CONVERT_CLOCKS)
-      convert_clocks = MIN_CONVERT_CLOCKS;
-    
-    dsocket = GetSocket(DATA);      
-    
-    pkt = new rawPkt;
-    if(!pkt){
-      return;
-    }
-    pkt->convClk = convert_clocks;
-    pkt->run = iSettings.currentRun;
-    pkt->data = (uint8_t*)malloc(MAX_ALLOC);
-    if(!pkt->data) {
-      return;
-    }
 
-    readThreadArgs = new rArgs;
-    readThreadArgs->FName = SamplesOutFileName.data();
-    cout << "Writing to: " << SamplesOutFileName.data() << endl;
-    readThreadArgs->NSamples = ReadNSamples;
-    readThreadArgs->sock = dsocket;
-    readThreadArgs->pkt = pkt;
-          
-    GetServerData((void*)readThreadArgs);
-    dataQue.push(pkt); 	
+  TString pyscript("python3 PSControl.py");
+  TString pyargs;
+  TString command;
+  
+  for(int n = 0; n < nLev*2; n++){
+
+    iSettings.currentRun = tmpRun;
+    if(n%2 == 0){
+      vLev = 0;
+    }
+    else{
+      vLev = LEDVoltages[vcnt];
+      vcnt++;
+    }
+    sleep(2);
+    
+    pyargs = Form(" -v %.2f",vLev); 
+    command = pyscript + pyargs;
+    system(command.Data());
+    
+
+    for(int dNRunSeqCnt = 0; dNRunSeqCnt < dNRunsSeq; dNRunSeqCnt++ ){
+      
+      
+      SamplesOutFileName = Form("Int_Run_%03d_VSeq_%02d.dat",iSettings.currentRun,n+1);
+      
+      //GetSocket(...) sets the global pointers cntr_socket or data_socket
+      //make sure they are close before opening them again for a new message/data transfer.
+      if(data_socket) {
+	zmq_close(data_socket);
+	data_socket = NULL;
+      }
+      if(cntr_socket) {
+	zmq_close(cntr_socket);
+	cntr_socket = NULL;
+      }
+      
+      //Set the board up with the correct channels, prescale, and packet size 
+      csocket = GetSocket(CNTRL);
+      ADCMessage(WRITE,csocket,reg1,cntrmsg,&retmsg);
+      ADCMessage(WRITE,csocket,reg2,ratemsg,&retmsg);
+      
+      //Read back the convert time delay used in the conversion of the time stamp
+      ADCMessage(READ,csocket,reg2,0,&retmsg);
+      convert_clocks = (retmsg >> 16) & 0xFF;
+      if(convert_clocks < MIN_CONVERT_CLOCKS)
+	convert_clocks = MIN_CONVERT_CLOCKS;
+      
+      dsocket = GetSocket(DATA);      
+      
+      pkt = new rawPkt;
+      if(!pkt){
+	return;
+      }
+      pkt->convClk = convert_clocks;
+      pkt->run = iSettings.currentRun;
+      pkt->vSeq = n+1;
+      pkt->V_LED = vLev;
+      pkt->data = (uint8_t*)malloc(MAX_ALLOC);
+      if(!pkt->data) {
+	return;
+      }
+      
+      readThreadArgs = new rArgs;
+      readThreadArgs->FName = SamplesOutFileName.data();
+      cout << "Writing to: " << SamplesOutFileName.data() << endl;
+      readThreadArgs->NSamples = ReadNSamples;
+      readThreadArgs->sock = dsocket;
+      readThreadArgs->pkt = pkt;
+      
+      GetServerData((void*)readThreadArgs);
+      dataQue.push(pkt); 	
       // pthread_create(&thread_cap_id, NULL, GetServerData, (void*)readThreadArgs);
       // dNRunSeqCnt++;
-    iSettings.currentRun++; 
-    if(dNRunSeqCnt == 0){
-      
-      fillThreadArgs = new fArgs;
-      fillThreadArgs->mQue = &dataQue;
-      fillThreadArgs->mExe = this;
-      fillThreadArgs->wReduced = dRootFileWriteReduced;
-      fillThreadArgs->dSamples = tmpDataSmpl;
-      fillThreadArgs->tree = DataTree;
-      fillThreadArgs->nRuns = dNRunsSeq;
-      // fillThreadArgs->rStartInd = RunStartIndex;
-      // fillThreadArgs->rStartTime = RunStartTime;
-      
-      // fillThreadArgs->FName = SamplesOutFileName.data();
-      // cout << "Writing to: " << SamplesOutFileName.data() << endl;
-      // readThreadArgs->NSamples = ReadNSamples;
-      // readThreadArgs->sock = dsocket;
-      // readThreadArgs->pkt = pkt;
-      pthread_create(&thread_plot_id, NULL, FillRootTreeThread, (void*)fillThreadArgs);
-   }
-      
-    // if(!dataQue.empty()){
-    //   FillRootTreeThread();
-      
-    //   pkt = (rawPkt*)dataQue.front();
-    //   free(pkt->data);
-    //   dataQue.pop();
-    //   // delete pkt;
-    //   pkt = NULL;      
-    // }
-
-
-    
+      if(dNRunSeqCnt == 0 && n == 0){
+	
+	fillThreadArgs = new fArgs;
+	fillThreadArgs->mQue = &dataQue;
+	fillThreadArgs->mExe = this;
+	fillThreadArgs->wReduced = dRootFileWriteReduced;
+	fillThreadArgs->dSamples = tmpDataSmpl;
+	fillThreadArgs->tree = DataTree;
+	fillThreadArgs->nRuns = dNRunsSeq;
+	// cout << endl << "Opening Thread !!!!!!!!!!!!!!!!!!!!!!!!!!!" << endl << endl;
+	pthread_create(&thread_plot_id, NULL, FillRootTreeThread, (void*)fillThreadArgs);
+      }
+      iSettings.currentRun++; 
+    }    
   }
-    // if(!pthread_join(thread_cap_id, NULL)){
-    //dataQue.push(pkt);
-    //cout << "this queue size = " << dataQue.size() << endl;
-    //RUN_START = false;
-    //RUN_ON = false;      
-    // }
-    
-    // gSystem->ProcessEvents();
 
   if(!pthread_join(thread_plot_id, NULL)){
   
     WriteSettings();
     cout << "Done!" << endl;
+    system("python3 PSControl.py -k 1");
     return;
   }
   
@@ -533,7 +564,7 @@ void *CMData::GetServerData(void *vargp)
 
 void* CMData::FillRootTreeThread(void *vargp)
 {
-  sleep(1);
+  sleep(2);
   
   pkt *data;
   rawPkt *rPkt;
@@ -588,6 +619,7 @@ void* CMData::FillRootTreeThread(void *vargp)
   tDataSamples *tmpData;
   TTree *dataTree = NULL;
   TFile* File = NULL;
+  //TFile* = new TFile;
   Bool_t fOpen = false;
   int nRuns = ((fArgs*)vargp)->nRuns;
 
@@ -599,14 +631,17 @@ void* CMData::FillRootTreeThread(void *vargp)
   int RunStartIndex = 0;
   int newRun = 0;
   int currentRun = 0;
+  int vseq = 0;
   
   while(!lQue->empty()){
     rPkt = lQue->front();
     //nRuns--;
     currentRun = rPkt->run;
-    ROOTFileName = Form("Int_Run_%03d.root",currentRun);
+    vseq = rPkt->vSeq;
+    ROOTFileName = Form("Int_Run_%03d_VSeq_%02d.root",currentRun,vseq);
     cout << "Setting ROOT file name: " << ROOTFileName << endl;
-    File = new TFile(ROOTFileName,"RECREATE");
+    // File = new TFile(ROOTFileName,"RECREATE");
+    File = TFile::Open(ROOTFileName,"RECREATE");
     dataTree = new TTree("DataTree","Integrating ADC Streaming Data");
     tmpData = NULL;
     dataTree->Branch("SampleStream","tDataSamples",&tmpData,64000,99);     
@@ -745,6 +780,8 @@ void* CMData::FillRootTreeThread(void *vargp)
     thisData->ch1_mean = thisData->ch1_sum/thisData->ch1_data.size(); 
     thisData->ch0_sig = sqrt(thisData->ch0_ssq/thisData->ch0_data.size()-thisData->ch0_mean*thisData->ch0_mean); 
     thisData->ch1_sig = sqrt(thisData->ch1_ssq/thisData->ch1_data.size()-thisData->ch1_mean*thisData->ch1_mean);
+    thisData->LEDVoltage = rPkt->V_LED;
+    thisData->LEDVoltSeq = rPkt->vSeq;
     // if(IsDataFileOpen()){
     // 	iSettings.currentData0 = ch0_num;
     // 	iSettings.currentData1 = ch1_num;
@@ -764,7 +801,7 @@ void* CMData::FillRootTreeThread(void *vargp)
       }
       if(File != NULL){
 	File->Write("",TObject::kOverwrite);
-	File->Close(kFalse);
+	//File->Close(kFalse);
 	delete File;
 	File = NULL;
       }
