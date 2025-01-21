@@ -97,6 +97,9 @@
 
 #define NUM_CHANNELS                      2
 
+#define  MAX_HVPS                         5
+#define  UNIX
+
 
 enum CommandIdentifiers {
 

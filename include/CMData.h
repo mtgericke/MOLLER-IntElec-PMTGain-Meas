@@ -32,6 +32,15 @@
 #include <TTree.h>
 #include <cerrno>
 
+#include <signal.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <termios.h>
+#include <unistd.h>
+#include <chrono>
+#include <thread>
+ 
+
 #include <string.h>
 #include <time.h>
 #include <iostream>
@@ -45,11 +54,17 @@
 #include <queue>
 #include <vector>
 #include "CMMonitorDef.h"
+#include "CAENHVWrapper.h"
 
 using namespace std;
 
 //*********************************************************************************
 
+
+struct HVSys {
+  int Handle;
+  int ID;
+};
 
 struct rawPkt{
 
@@ -59,8 +74,13 @@ struct rawPkt{
   Int_t run;
   int vSeq;
   double V_LED;
+  double V_LED_Set;
+  double V_HV;
+  double V_HV_Set;
+  //int nRuns;
   //double V_PMT;
   //double Ve_PMT;
+   int Rcnt;
 
 
 };
@@ -112,7 +132,8 @@ public:
   double ch0_sig;
   double ch1_sig;
   double LEDVoltage;
-  double LEDVoltSeq;
+  double HVVoltage;
+  double VoltSeq;
   double RunLength;
   uint64_t NSamples;
   int Run;
@@ -129,6 +150,7 @@ struct rArgs{
 };
 
 class CMData;
+
 struct fArgs{
   //string FName;
   //int NSamples;
@@ -139,6 +161,17 @@ struct fArgs{
   tDataSamples *dSamples;
   TTree *tree;
   int nRuns;
+
+  bool dLEDSpec;   //The applied LED voltage has been specified this run(sequence)
+  bool dHVSpec;    //The applied PMT HV has been specified for this run(sequence)  
+  bool PMTSerFl;   //The PMT serial number has been specified for this run(sequence)
+  bool BaseSerFl;  //The base (divider+preamp) serial number has been specified for this run(sequence)
+  bool PMTSeqFl;   //This flag indicated that this is a run sequence in which the PMT HV is varied
+  bool LEDSeqFl;   //This flag indicated that this is a run sequence in which the LED voltage is varied
+  string PMTSer;   //This is the PMT serial number string
+  string BaseSer;  //This is the Base serial number string
+
+  
   // Int_t  *rStartInd;
   // uint64_t  rStartTime;
 };
@@ -168,6 +201,7 @@ private:
   
   ifstream               *SettingsFile;
   ifstream               *LEDVoltageFile;
+  ifstream               *PMTVoltageFile;
   ofstream               *SettingsOutFile;
   
   TTree                  *DataTree;
@@ -194,7 +228,16 @@ private:
   int                     dNRunSeqCnt;
   vector<double>          LEDVoltages;
   vector<double>          PMTVoltages;
-  vector<double>          PMTVoltagesEr;
+  vector<double>          ADCSignalLevel;
+  vector<double>          ADCSignalLevelEr;
+  Int_t                   PMTHighVoltage;
+  Double_t                LEDLowVoltage;
+  TString                 PMTSerial;
+  TString                 BaseSerial;
+  Bool_t                  PMTSerialFlag;
+  Bool_t                  BaseSerialFlag;
+  Bool_t                  PMTHVAutoScan;
+  Bool_t                  LEDVAutoScan;
 
   char                    Data0;
   char                    Data1;
@@ -219,8 +262,14 @@ private:
   Bool_t                  dDataFileOpen;
   Bool_t                  dRootFileOpen;
   Bool_t                  dRootFileWriteReduced;
+
+  Bool_t                  dHVSpec;
+  Bool_t                  dLEDSpec;
   
-  uint32_t               cntrMsg[3];
+  uint32_t                cntrMsg[3];
+
+  HVSys                   HVSystem;
+
   
   void*                   GetSocket(SockType type);
   Bool_t                  ADCMessage(ActType type, void* socket, uint32_t addr, uint32_t data, uint32_t *msgret);         
@@ -238,10 +287,16 @@ private:
   void                    SetRootFileOpen(Bool_t open = kFalse){dRootFileOpen = open;};
   void                    CloseRootFile();
   void                    ReadLEDVoltageValues();
+  void                    ReadPMTVoltageValues();
   void                    SetDataFileName(const char *name){DataFileName = name;};
   void                    CloseDataFile();
   Int_t                   SaveDataFile(ERFileStatus status, const char* file);
   TTree                  *GetDataTree() {return DataTree;};
+  void                    InitCAENHVModule();
+  void                    DeInitCAENHVModule();
+  void                    SetCAENHVChannelVoltage(unsigned short channel, float val, float *act);
+  Bool_t                  ReadCAENHVChannelVoltage(unsigned short channel, float spec, float *act);
+  void                    SetCAENHVChannelOnOff(unsigned short channel, int toggle);
   
   
 public:

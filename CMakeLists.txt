@@ -19,6 +19,9 @@ set(RDATA_LIBRARIES "${PROJECT_SOURCE_DIR}/lib/build/libRData.a")
 set(RDATA_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/lib/include")
 set(ZMQ_LIBRARY "/usr/local/lib/libzmq.a")
 set(ZMQ_INCLUDE_DIR "/usr/local/include") 
+set(CAENHV_WRAPPER_LIB "/usr/lib/libcaenhvwrapper.so")
+set(CAENHV_WRAPPER_INC "/usr/include")
+
 
 # ROOT version 6 required
 if(ROOT_FOUND)
@@ -38,7 +41,8 @@ endif()
 include_directories(${PROJECT_SOURCE_DIR}/include
                     ${ROOT_INCLUDE_DIRS}
 		    ${RDATA_INCLUDE_DIRS}
-		    ${ZMQ_INCLUDE_DIR})
+		    ${ZMQ_INCLUDE_DIR}
+		    ${CAENHV_WRAPPER_INC})
 file(GLOB sources ${PROJECT_SOURCE_DIR}/source/CMMonitor.cxx)
 file(GLOB headers ${PROJECT_SOURCE_DIR}/include/CMMonitor.h)
 
@@ -58,6 +62,6 @@ add_executable(CMData ${PROJECT_SOURCE_DIR}/source/CMData.cxx ${PROJECT_SOURCE_D
 add_library(CMDataDictionaries SHARED ${PROJECT_SOURCE_DIR}/source/CMData.cxx ${PROJECT_SOURCE_DIR}/include/CMData.h CMDataDict.cxx)
 target_link_libraries(CMDataDictionaries ${ROOT_LIBRARIES})
 
-target_link_libraries(CMMonitor CMMonitorDictionaries ${ZMQ_LIBRARY} ${RDATA_LIBRARIES} ${ROOT_LIBRARIES} ROOT::Gui ROOT::Core ROOT::Imt ROOT::RIO ROOT::Net ROOT::Hist ROOT::Graf ROOT::Graf3d ROOT::Gpad ROOT::ROOTVecOps ROOT::Tree ROOT::TreePlayer ROOT::Rint ROOT::Postscript ROOT::Matrix ROOT::Physics ROOT::MathCore ROOT::Thread ROOT::MultiProc ROOT::ROOTDataFrame -pthread)
+target_link_libraries(CMMonitor CMMonitorDictionaries ${ZMQ_LIBRARY} ${CAENHV_WRAPPER_LIB} ${RDATA_LIBRARIES} ${ROOT_LIBRARIES} ROOT::Gui ROOT::Core ROOT::Imt ROOT::RIO ROOT::Net ROOT::Hist ROOT::Graf ROOT::Graf3d ROOT::Gpad ROOT::ROOTVecOps ROOT::Tree ROOT::TreePlayer ROOT::Rint ROOT::Postscript ROOT::Matrix ROOT::Physics ROOT::MathCore ROOT::Thread ROOT::MultiProc ROOT::ROOTDataFrame -pthread)
 
-target_link_libraries(CMData CMDataDictionaries ${ZMQ_LIBRARY} ${ROOT_LIBRARIES} ROOT::Gui ROOT::Core ROOT::Imt ROOT::RIO ROOT::Net ROOT::Hist ROOT::Graf ROOT::Graf3d ROOT::Gpad ROOT::ROOTVecOps ROOT::Tree ROOT::TreePlayer ROOT::Rint ROOT::Postscript ROOT::Matrix ROOT::Physics ROOT::MathCore ROOT::Thread ROOT::MultiProc ROOT::ROOTDataFrame -pthread)
+target_link_libraries(CMData CMDataDictionaries ${ZMQ_LIBRARY}  ${CAENHV_WRAPPER_LIB} ${ROOT_LIBRARIES} ROOT::Gui ROOT::Core ROOT::Imt ROOT::RIO ROOT::Net ROOT::Hist ROOT::Graf ROOT::Graf3d ROOT::Gpad ROOT::ROOTVecOps ROOT::Tree ROOT::TreePlayer ROOT::Rint ROOT::Postscript ROOT::Matrix ROOT::Physics ROOT::MathCore ROOT::Thread ROOT::MultiProc ROOT::ROOTDataFrame -pthread)

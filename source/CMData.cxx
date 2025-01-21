@@ -67,7 +67,15 @@ CMData::CMData(int *argc, char **argv)
   RunStartIndex = 0;
 
   dRootFileWriteReduced = false;
-
+  dHVSpec = false;
+  dLEDSpec = false;
+  PMTSerialFlag = false;
+  PMTHVAutoScan = false;
+  LEDVAutoScan = false;
+  BaseSerialFlag = false;
+  PMTHighVoltage = -1;
+  PMTSerial = "NONE";
+  BaseSerial = "NONE";
 
   if(nargs >= 2){
     while(n < nargs){
@@ -132,15 +140,65 @@ CMData::CMData(int *argc, char **argv)
 	  n += 2;
 	}
       }
+      else if(arg == Form("-HV") && n < nargs-1){
+	argp = argv[n+1];
+	if(argp.IsFloat()){
+	  tmpi =  atoi(argp.Data());
+	  PMTHighVoltage = tmpi;
+	  dHVSpec = true;
+	  
+	  n += 2;
+	}
+      }
+      else if(arg == Form("-HVS") && n < nargs){
+	
+	dHVSpec = false;
+	// dLEDSpec = false;
+	PMTHVAutoScan = true;
+	dHVSpec = true;
+	LEDVAutoScan = false;
+	n++;
+	
+      }
+      else if(arg == Form("-LEDS") && n < nargs){
+	
+	dLEDSpec = false; 
+	//dHVSpec = false;
+	PMTHVAutoScan = false;
+	LEDVAutoScan = true;
+	dLEDSpec = true;
+	n++;
+	
+      }
+      else if(arg == Form("-LV") && n < nargs-1){
+	argp = argv[n+1];
+	if(argp.IsFloat()){
+	  tmpf =  atof(argp.Data());
+	  LEDLowVoltage = tmpf;
+	  dLEDSpec = true;
+	  
+	  n += 2;
+	}
+      }
       else if(arg == Form("-red") && n < nargs){
 	n++;
 	dRootFileWriteReduced = true;
+      }
+      else if(arg == Form("-PMTSER") && n < nargs-1){
+	PMTSerial = argv[n+1];
+	PMTSerialFlag = true;
+	n += 2;
+      }
+      else if(arg == Form("-BaseSER") && n < nargs-1){
+	BaseSerial = argv[n+1];
+	BaseSerialFlag = true;
+	n += 2;
       }
       else
 	n++;
     }
   }
-
+  
   
   //cout << iSettings.IP << endl;
   //cout << iSettings.currentRun << endl;
@@ -156,20 +214,35 @@ CMData::CMData(int *argc, char **argv)
   data_socket = NULL;
   context = NULL;
 
+  
+  // for(int i = 0; i < MAX_HVPS ; i++ )
+  HVSystem.ID = -1;
 
+
+  LEDVoltages.resize(0);
+  PMTVoltages.resize(0);
+  ADCSignalLevel.resize(0);
+  ADCSignalLevelEr.resize(0);
+  if(dLEDSpec) ReadLEDVoltageValues();
+  if(PMTHVAutoScan) ReadPMTVoltageValues(); // sets PMTHVAutoScan = false, if HV file can't be found/read.
+  if(PMTHVAutoScan) InitCAENHVModule(); // sets PMTHVAutoScan = false, if HV power supply can't be initialized.
   std::set_new_handler(0);
-  ReadLEDVoltageValues();
-  StartDataCollection();
+   StartDataCollection();
 
+  // if(PMTHVAutoScan) SetCAENHVChannelVoltage(1,50); // sets PMTHVAutoScan = false, if HV power supply can't be initialized.
+  // if(PMTHVAutoScan) SetCAENHVChannelOnOff(1,1); // sets PMTHVAutoScan = false, if HV power supply can't be initialized.
+  // sleep(10);
+  // if(PMTHVAutoScan) SetCAENHVChannelVoltage(1,100); // sets PMTHVAutoScan = false, if HV power supply can't be initialized.
+  // sleep(10);
+  // if(PMTHVAutoScan) SetCAENHVChannelVoltage(1,200); // sets PMTHVAutoScan = false, if HV power supply can't be initialized.
+  // sleep(10);
+  // if(PMTHVAutoScan) SetCAENHVChannelVoltage(1,0); // sets PMTHVAutoScan = false, if HV power supply can't be initialized.
+  // sleep(10);
+  // if(PMTHVAutoScan) DeInitCAENHVModule(); // sets PMTHVAutoScan = false, if HV power supply can't be initialized.
 }
 
 void CMData::ReadLEDVoltageValues()
-{
-  LEDVoltages.resize(0);
-  PMTVoltages.resize(0);
-  PMTVoltagesEr.resize(0);
-  
-  
+{   
   double val;
   LEDVoltageFile = NULL;
   LEDVoltageFile = new ifstream("LEDVoltages.txt");
@@ -184,8 +257,8 @@ void CMData::ReadLEDVoltageValues()
 
 	//cout << "val = " << val << endl;
 	LEDVoltages.push_back(val);
-	PMTVoltages.push_back(0);
-	PMTVoltagesEr.push_back(0);
+	ADCSignalLevel.push_back(0);
+	ADCSignalLevelEr.push_back(0);
 
       }
 	
@@ -193,8 +266,194 @@ void CMData::ReadLEDVoltageValues()
        
     }
   }
-
 }
+
+void CMData::ReadPMTVoltageValues()
+{   
+  double val;
+  PMTVoltageFile = NULL;
+  PMTVoltageFile = new ifstream("PMTVoltages.txt");
+  if(PMTVoltageFile){
+    if(PMTVoltageFile->is_open()){
+
+      while(!(PMTVoltageFile->eof())){
+	*PMTVoltageFile >> val;
+	
+	if(PMTVoltageFile->eof())
+	  break;
+
+	//cout << "val = " << val << endl;
+	PMTVoltages.push_back(val);
+	ADCSignalLevel.push_back(0);
+	ADCSignalLevelEr.push_back(0);
+
+      }
+	
+      PMTVoltageFile->close();
+       
+    }
+    else{
+      PMTHVAutoScan = false;
+      cout << "Can't open PMTVoltage.txt. PMT HV scan disabled!" << endl;
+      DeInitCAENHVModule();
+    }
+  }
+  else{
+    PMTHVAutoScan = false;
+    cout << "Can't find PMTVoltage.txt. PMT HV scan disabled!" << endl;
+    DeInitCAENHVModule();
+  }
+}
+
+void CMData::InitCAENHVModule()
+{
+  char          arg[300], userName[30], passwd[30];
+  int           i, c, link;
+  int           sysHndl=-1;
+  int           sysType=-1;
+  CAENHVRESULT  ret;
+
+  char comm[30] = "ttyACM0";
+  char baud[30] = "9600";
+  char data[30] = "8";
+  char stop[30] = "0";
+  char parity[30] = "0";
+  char bn[30] = "0";     //Board number = 0 for a single power supply 
+
+  sprintf(arg,"%s_%s_%s_%s_%s_%s",comm,baud,data,stop,parity,bn);
+  link = LINKTYPE_USB_VCP;
+  sysType = N1470;
+
+  strcpy(userName, "admin");
+  strcpy(passwd, "admin");
+
+  ret = CAENHV_InitSystem((CAENHV_SYSTEM_TYPE_t)sysType, link, arg, userName, passwd, &sysHndl);
+
+
+  if( ret == CAENHV_OK ){
+    HVSystem.ID = ret;
+    HVSystem.Handle = sysHndl;
+    cout << "\nCAENHV_InitSystem OK!" << endl  << endl;
+  }
+  else{
+    cout << "\nCAENHV_InitSystem ERROR: " << CAENHV_GetError(sysHndl) << " returned  with "  << ret  << endl;
+    cout << "Continuing without automatic HV scan. You must adjust the HV manually between runs." << endl  << endl;
+    PMTHVAutoScan = false;
+  }
+}
+
+void CMData::DeInitCAENHVModule()
+{
+  CAENHVRESULT  ret;
+
+  int handle = HVSystem.Handle;
+  ret = CAENHV_DeinitSystem(handle);
+
+  if( ret == CAENHV_OK ){
+    cout << "\nCAENHV_DeinitSystem OK: Connection closed" << endl  << endl;
+  }
+  else{
+    cout << "\nCAENHV_DeinitSystem ERROR: " << CAENHV_GetError(handle) << " returned  with "  << ret << endl  << endl;
+    cout << "Power cycle HV PS." << endl  << endl;
+    PMTHVAutoScan = false;
+  }
+}
+
+
+void CMData::SetCAENHVChannelVoltage(unsigned short channel, float val, float *actual)
+{
+  unsigned short Slot = 0;
+  unsigned short ChNum = 1; //just one channel - not multiple
+  vector<unsigned short> ChList;
+  float fParVal = val;
+  ChList.push_back(channel);
+  int handle = HVSystem.Handle;
+  CAENHVRESULT  ret;
+  float readval;
+  
+  
+  ret = CAENHV_SetChParam(handle, Slot, "VSet", ChNum, &ChList[0], &fParVal);
+  cout << "CAENHV_SetModuleParameter: VSet = " << val  << endl;
+  if(ReadCAENHVChannelVoltage(channel,val,&readval)){
+			      //if( ret == CAENHV_OK ){
+    cout << "VSet complete." << endl << endl;
+    *actual = readval;
+
+  }
+  else{
+    
+    cout << "\nCAENHV_SetModuleParameter VSet  ERROR: " << CAENHV_GetError(handle) << " returned  with"  << ret << endl;
+    cout << "Can't seem to set the voltage or power supply is not stabalizing. Check the power supply." << endl; 
+    cout << "Continuing without automatic HV scan. You must adjust the HV manually between runs." << endl  << endl;
+    PMTHVAutoScan = false;
+  }
+}
+
+void CMData::SetCAENHVChannelOnOff(unsigned short channel, int toggle)
+{
+  unsigned short Slot = 0;
+  unsigned short ChNum = 1; //just one channel - not multiple
+  vector<unsigned short> ChList;
+  float fParVal = (float)toggle;
+  ChList.push_back(channel);
+  int handle = HVSystem.Handle;
+  CAENHVRESULT  ret;
+  double compared;
+  
+  ret = CAENHV_SetChParam(handle, Slot, "Pw", ChNum, &ChList[0], &fParVal);
+  if( ret == CAENHV_OK ){
+
+    if(toggle == 1)
+      cout << "Channel " << channel << " turned on OK:" << endl  << endl;
+    if(toggle == 0)
+      cout << "Channel " << channel << " turned off OK:" << endl  << endl;
+
+  }
+  else{
+    
+    cout << "\nCAENHV_SetModuleParameter ERROR: " << CAENHV_GetError(handle) << " returned  with"  << ret << endl;
+    cout << "Seem to be aunable to turn channel " << channel << " on. Check power supply." << endl;
+    cout << "Continuing without automatic HV scan. You must adjust the HV manually between runs." << endl  << endl;
+    PMTHVAutoScan = false;
+  }
+}
+
+
+Bool_t CMData::ReadCAENHVChannelVoltage( unsigned short channel, float specified, float *actual)
+{
+  unsigned short Slot = 0;
+  unsigned short ChNum = 1; //just one channel - not multiple
+  unsigned long	tipo;
+  vector<float> fParValList;
+  vector<unsigned short> ChList;
+  //float fParVal = val;
+  ChList.push_back(channel);
+  fParValList.push_back(0);
+  int handle = HVSystem.Handle;
+  CAENHVRESULT  ret;
+  Bool_t READKOK = false;
+  int loops = 0;
+  
+  //ret = CAENHV_GetChParamProp(handle, Slot, ChList[0], par, "Type", &tipo);
+  for(int k = 0; k < 20; k++){
+    // if( ret == CAENHV_OK ){
+    //   if( tipo == PARAM_TYPE_NUMERIC ){
+    ret = CAENHV_GetChParam(handle, Slot, "VMon" , ChNum, &ChList[0], &fParValList[0]);
+    if( ret == CAENHV_OK ){
+      if(fParValList[0] > specified - 0.5 && fParValList[0] < specified + 0.5){
+	cout << "\nCAENHV_ReadModuleParameter OK: VMon = " << fParValList[0]  << endl  << endl;
+	*actual = fParValList[0];
+	return true;
+      }
+    }
+    cout << "Waiting for read-back voltage to stabilize ,,,\n" << endl;
+    sleep(2);
+  }
+  return true;
+}
+
+
+
 
 void* CMData::GetSocket(SockType type)
 {
@@ -355,15 +614,19 @@ void CMData::StartDataCollection()
   void* csocket;
   void* dsocket;
   rawPkt *pkt = NULL;
+  SamplesOutFileName = "IntMode_Run";
 
   int flag = 0;
   //int dNRunSeqCnt = 0;
-
-  int nLev = LEDVoltages.size();
+  int nLev = 1;
+  
+  if(LEDVAutoScan) nLev = 2*LEDVoltages.size();
+  if(PMTHVAutoScan) nLev = PMTVoltages.size();
+  
   double vLev = 0;
+  float vRead = 0;
   int vcnt = 0;
   int tmpRun = iSettings.currentRun;
-
   
   ReadNSamples = iSettings.RunLength *SAMPLES_PER_SECOND/iSettings.PreScFactor;
   //dNRunSeqCnt = 0;
@@ -371,28 +634,78 @@ void CMData::StartDataCollection()
   TString pyscript("python3 PSControl.py");
   TString pyargs;
   TString command;
+
+  if(PMTHVAutoScan){
+    cout << "\nSet HV to zero and turn on channel, Then wait 30 sec." << endl << endl;
+    SetCAENHVChannelVoltage(1,0,&vRead);
+    SetCAENHVChannelOnOff(1,1);
+    std::this_thread::sleep_for(chrono::milliseconds(30000));
+  }
   
-  for(int n = 0; n < nLev*2; n++){
+  for(int n = 0; n < nLev; n++){
 
-    iSettings.currentRun = tmpRun;
-    if(n%2 == 0){
-      vLev = 0;
-    }
-    else{
-      vLev = LEDVoltages[vcnt];
-      vcnt++;
-    }
-    sleep(2);
+    if(LEDVAutoScan){
+      iSettings.currentRun = tmpRun;
+      if(n%2 == 0){
+	vLev = 0;
+      }
+      else{
+	vLev = LEDVoltages[vcnt];
+	LEDLowVoltage = vLev;
+	vcnt++;
+      }
+      sleep(2);
     
-    pyargs = Form(" -v %.2f",vLev); 
-    command = pyscript + pyargs;
-    system(command.Data());
-    
+      pyargs = Form(" -v %.2f",vLev); 
+      command = pyscript + pyargs;
+      system(command.Data());
+      cout << "\nWaiting for 10 seconds to let new voltage level stabilize." << endl  << endl;
+      std::this_thread::sleep_for(chrono::milliseconds(10000));
+    }
+    else if(PMTHVAutoScan){
 
+      vLev = PMTVoltages[n];
+      SetCAENHVChannelVoltage(1,vLev,&vRead);      
+      if(!PMTHVAutoScan){
+
+	cout << "\nCould not turn on or set PMT HV. Check the power supply connection and restart data asquisition. " << endl  << endl;
+	cout << "Stopping this run sequence. " << endl  << endl;
+	return;
+      }
+      PMTHighVoltage = vLev;
+      cout << "\n\nWaiting for 30 seconds for the PMT to stabalize." << endl  << endl;
+      printf("\n");
+      std::this_thread::sleep_for(chrono::milliseconds(30000));
+    }
+
+    
     for(int dNRunSeqCnt = 0; dNRunSeqCnt < dNRunsSeq; dNRunSeqCnt++ ){
-      
-      
-      SamplesOutFileName = Form("Int_Run_%03d_VSeq_%02d.dat",iSettings.currentRun,n+1);
+
+      SamplesOutFileName = Form("IntMode_Run_%04d",iSettings.currentRun);
+      if(PMTSerialFlag) SamplesOutFileName += Form("_PMT_%s",PMTSerial.Data());
+      if(BaseSerialFlag) SamplesOutFileName += Form("_Base_%s",BaseSerial.Data());
+      if(dHVSpec) SamplesOutFileName += Form("_HV_%03d",PMTHighVoltage);
+      if(LEDVAutoScan) SamplesOutFileName += Form("_VSeq_%02d",n+1);
+      SamplesOutFileName += ".dat";
+
+      // if(dLEDSpec){
+      // 	if(PMTSerialFlag)
+      // 	  SamplesOutFileName = Form("IntMode_Run_%03d_PMT_%s_HV_%04d_VSeq_%02d.dat",iSettings.currentRun,PMTSerial.Data(),PMTHighVoltage,n+1);
+      // 	else
+      // 	  SamplesOutFileName = Form("IntMode_Run_%03d_HV_%04d_VSeq_%02d.dat",iSettings.currentRun,PMTHighVoltage,n+1);
+      // }
+      // else if(dHVSpec){
+      // 	if(PMTSerialFlag)
+      // 	  SamplesOutFileName = Form("IntMode_Run_%03d_PMT_%s_HV_%04d.dat",iSettings.currentRun,PMTSerial.Data(),PMTHighVoltage);
+      // 	else
+      // 	  SamplesOutFileName = Form("IntMode_Run_%03d_HV_%04d.dat",iSettings.currentRun,PMTHighVoltage);
+      // }
+      // else{
+      // 	if(PMTSerialFlag)
+      // 	  SamplesOutFileName = Form("IntMode_Run_%03dPMT_%s.dat",iSettings.currentRun,PMTSerial.Data());
+      // 	else
+      // 	  SamplesOutFileName = Form("Int_Run_%03d.dat",iSettings.currentRun);
+      // }
       
       //GetSocket(...) sets the global pointers cntr_socket or data_socket
       //make sure they are close before opening them again for a new message/data transfer.
@@ -425,7 +738,11 @@ void CMData::StartDataCollection()
       pkt->convClk = convert_clocks;
       pkt->run = iSettings.currentRun;
       pkt->vSeq = n+1;
-      pkt->V_LED = vLev;
+      pkt->V_LED = LEDLowVoltage;
+      pkt->V_LED_Set = LEDLowVoltage; 
+      pkt->V_HV_Set = PMTHighVoltage;
+      pkt->V_HV = vRead;
+      pkt->Rcnt = (n*dNRunsSeq + dNRunSeqCnt)+1;
       pkt->data = (uint8_t*)malloc(MAX_ALLOC);
       if(!pkt->data) {
 	return;
@@ -450,19 +767,38 @@ void CMData::StartDataCollection()
 	fillThreadArgs->wReduced = dRootFileWriteReduced;
 	fillThreadArgs->dSamples = tmpDataSmpl;
 	fillThreadArgs->tree = DataTree;
-	fillThreadArgs->nRuns = dNRunsSeq;
+	fillThreadArgs->nRuns = dNRunsSeq*nLev;
+	fillThreadArgs->dLEDSpec = dLEDSpec;
+	fillThreadArgs->dHVSpec = dHVSpec;
+	fillThreadArgs->PMTSeqFl = PMTHVAutoScan;
+	fillThreadArgs->LEDSeqFl = LEDVAutoScan;	
+	fillThreadArgs->PMTSerFl = PMTSerialFlag;
+	fillThreadArgs->PMTSer = PMTSerial.Data();
+	fillThreadArgs->BaseSerFl = BaseSerialFlag;
+	fillThreadArgs->BaseSer = BaseSerial.Data();      
+
 	// cout << endl << "Opening Thread !!!!!!!!!!!!!!!!!!!!!!!!!!!" << endl << endl;
 	pthread_create(&thread_plot_id, NULL, FillRootTreeThread, (void*)fillThreadArgs);
       }
       iSettings.currentRun++; 
-    }    
+    }
+    
   }
-
-  if(!pthread_join(thread_plot_id, NULL)){
   
+  if(!pthread_join(thread_plot_id, NULL)){
+        
     WriteSettings();
     cout << "Done!" << endl;
-    system("python3 PSControl.py -k 1");
+    if(LEDVAutoScan)
+      system("python3 PSControl.py -k 1");
+
+    if(PMTHVAutoScan) {
+      cout << "\n\nWait for HV to ramp down.\n\n" << endl;
+      SetCAENHVChannelVoltage(1,0,&vRead);
+     }
+    if(PMTHVAutoScan) SetCAENHVChannelOnOff(1,0);
+    if(PMTHVAutoScan) DeInitCAENHVModule();
+    
     return;
   }
   
@@ -564,7 +900,7 @@ void *CMData::GetServerData(void *vargp)
 
 void* CMData::FillRootTreeThread(void *vargp)
 {
-  sleep(2);
+  sleep(10);
   
   pkt *data;
   rawPkt *rPkt;
@@ -621,25 +957,114 @@ void* CMData::FillRootTreeThread(void *vargp)
   TFile* File = NULL;
   //TFile* = new TFile;
   Bool_t fOpen = false;
+  Bool_t done = false;
   int nRuns = ((fArgs*)vargp)->nRuns;
 
   queue<rawPkt*> *lQue = ((fArgs*)vargp)->mQue;
 
-  TString ROOTFileName;
+  TString ROOTFileName = "IntMode_Run";
 
   int RunStartTime = 0;
   int RunStartIndex = 0;
   int newRun = 0;
   int currentRun = 0;
   int vseq = 0;
+  double HV = 0;
+  double tmpHV = 0;
+  double V_LED = 0;
+  double tmpV_LED = 0;
+
+  double SeqMeanSumCh0 = 0;
+  double SeqMeanSumSqCh0 = 0;
+  double SeqMeanCh0;
+  double SeqErrCh0;
+  double SeqMeanCh1;
+  double SeqErrCh1;
+  double SeqMeanSumCh1 = 0;
+  double SeqMeanSumSqCh1 = 0;
+  int SeqCnt = 0;
+  TString SeriesOutFName;
+  ofstream *SeriesOut;
+  Bool_t WriteSeriesData = false;
+  int firstRun;
+  int lastRun;
+  int start = 1;
+    
+  if(((fArgs*)vargp)->PMTSeqFl || ((fArgs*)vargp)->LEDSeqFl){
+
+    SeriesOutFName = Form("IntMode_HVScan_PMT_%s",((fArgs*)vargp)->PMTSer.data());
+    if(((fArgs*)vargp)->BaseSerFl) SeriesOutFName += Form("_Base_%s",((fArgs*)vargp)->BaseSer.data());
+    if(((fArgs*)vargp)->dLEDSpec) SeriesOutFName += "_LEDON";
+    SeriesOutFName += ".dat";
+    
+
+    SeriesOut = new ofstream(SeriesOutFName,std::ios_base::app);
+    if(SeriesOut){
+      if(SeriesOut->is_open()){
+
+	WriteSeriesData = true;
+	
+	*SeriesOut << "PMT Serial: " << ((fArgs*)vargp)->PMTSer.data() << "\n";
+	*SeriesOut << "Base Serial: " << ((fArgs*)vargp)->BaseSer.data() << "\n\n";
+	*SeriesOut << "Runs\t" << "NRuns\t" << "HV\t" << "V_LED\t" << "Ch0 Mean\t" << "Ch0 Err\t" << "Ch1 Mean\t" << "Ch1 Err\t" << "\n";
+	
+	// for(int v = 0; v < nLev; v++){
+	//   *dataout << HVVoltages[v] << " " << -1*SigVoltMean[v] << " " << std::setprecision(8) << SigVoltEr[v] << "\n";
+	// }
+	// dataout->close();
+      }
+    }
+  }
+
+  //TString filename = "IntMode_Run";
   
-  while(!lQue->empty()){
+  // while(!lQue->empty()){
+  while(1){//!lQue->empty()){
+    if(!lQue->empty()){
+      
     rPkt = lQue->front();
     //nRuns--;
+    if(rPkt->Rcnt == nRuns) done = true;
+    lastRun = currentRun;
     currentRun = rPkt->run;
     vseq = rPkt->vSeq;
-    ROOTFileName = Form("Int_Run_%03d_VSeq_%02d.root",currentRun,vseq);
-    cout << "Setting ROOT file name: " << ROOTFileName << endl;
+    HV = rPkt->V_HV;
+    V_LED = rPkt->V_LED;
+    if(start){
+      tmpHV = HV;
+      tmpV_LED = V_LED;
+      start = 0;
+      SeqCnt = 0;
+    }
+
+    ROOTFileName = Form("IntMode_Run_%04d",currentRun);
+    if(((fArgs*)vargp)->PMTSerFl) ROOTFileName += Form("_PMT_%s",((fArgs*)vargp)->PMTSer.data());
+    if(((fArgs*)vargp)->BaseSerFl) ROOTFileName += Form("_Base_%s",((fArgs*)vargp)->BaseSer.data());
+    if(((fArgs*)vargp)->dHVSpec) ROOTFileName += Form("_HV_%03d",(int)rPkt->V_HV_Set);
+    if(((fArgs*)vargp)->LEDSeqFl) ROOTFileName += Form("_VSeq_%02d",vseq);
+    ROOTFileName += ".root";
+    
+    
+    
+    // if(((fArgs*)vargp)->dLEDSpec)
+    //   if(((fArgs*)vargp)->PMTSerFl)
+    // 	if(((fArgs*)vargp)->PMTSerFl)
+	
+    // 	ROOTFileName = Form("IntMode_Run_%03d_PMT_%s_Base_%s_HV_%04d_VSeq_%02d.root",currentRun,((fArgs*)vargp)->PMTSer.data(),((fArgs*)vargp)->BaseSer.data(),(int)rPkt->V_HV_Set,vseq);
+    //   else
+    // 	ROOTFileName = Form("IntMode_Run_%03d_HV_%04d_VSeq_%02d.root",currentRun,(int)rPkt->V_HV_Set,vseq);
+    // else if(((fArgs*)vargp)->dHVSpec)
+    //   if(((fArgs*)vargp)->PMTSerFl)      
+    // 	ROOTFileName = Form("IntMode_Run_%03d_PMT_%s_HV_%04d.root",currentRun,((fArgs*)vargp)->PMTSer.data(),(int)rPkt->V_HV_Set);
+    //   else
+    // 	ROOTFileName = Form("IntMode_Run_%03d_HV_%04d.root",currentRun,(int)rPkt->V_HV_Set);
+    // else
+    //   if(((fArgs*)vargp)->PMTSerFl)      
+    // 	ROOTFileName = Form("IntMode_Run_%03dPMT_%s_.root",currentRun,((fArgs*)vargp)->PMTSer.data());
+    //   else
+    // 	ROOTFileName = Form("IntMode_Run_%03d.root",currentRun);
+
+    cout << "\nSetting ROOT file name: " << ROOTFileName << endl;
     // File = new TFile(ROOTFileName,"RECREATE");
     File = TFile::Open(ROOTFileName,"RECREATE");
     dataTree = new TTree("DataTree","Integrating ADC Streaming Data");
@@ -653,11 +1078,11 @@ void* CMData::FillRootTreeThread(void *vargp)
     thisData->ch1_sum = 0;
     thisData->ch0_ssq = 0;
     thisData->ch1_ssq = 0;
-    
+   
     SampRead = 0;
     RunStartTime = cTime;
     
-    cout << "Filling tree with data packets for run: " << rPkt->run << endl;
+    cout << "\nFilling tree with data packets for run: " << rPkt->run << endl;
     bi = 0;
     while(bi < rPkt->length){
       
@@ -780,8 +1205,9 @@ void* CMData::FillRootTreeThread(void *vargp)
     thisData->ch1_mean = thisData->ch1_sum/thisData->ch1_data.size(); 
     thisData->ch0_sig = sqrt(thisData->ch0_ssq/thisData->ch0_data.size()-thisData->ch0_mean*thisData->ch0_mean); 
     thisData->ch1_sig = sqrt(thisData->ch1_ssq/thisData->ch1_data.size()-thisData->ch1_mean*thisData->ch1_mean);
+    thisData->HVVoltage = rPkt->V_HV;
     thisData->LEDVoltage = rPkt->V_LED;
-    thisData->LEDVoltSeq = rPkt->vSeq;
+    thisData->VoltSeq = rPkt->vSeq;
     // if(IsDataFileOpen()){
     // 	iSettings.currentData0 = ch0_num;
     // 	iSettings.currentData1 = ch1_num;
@@ -793,6 +1219,68 @@ void* CMData::FillRootTreeThread(void *vargp)
     thisData->NSamples = SampRead;//ReadNSamples;
     tmpData = thisData;
     //cout << "ch0 buffer = " << tmpData->ch0_data.size() << endl;
+
+    if(WriteSeriesData){
+
+      if(done){
+	SeqMeanSumCh0 += thisData->ch0_mean;
+	SeqMeanSumSqCh0 += thisData->ch0_mean*thisData->ch0_mean;
+	SeqMeanSumCh1 += thisData->ch1_mean;
+	SeqMeanSumSqCh1 += thisData->ch1_mean*thisData->ch1_mean;
+	SeqCnt++;
+      }
+      
+      if( ((fArgs*)vargp)->PMTSeqFl){
+	if(done || HV != tmpHV){
+	
+	  SeqMeanCh0 = SeqMeanSumCh0/SeqCnt ;
+	  SeqErrCh0 = sqrt(SeqMeanSumSqCh0/SeqCnt/SeqCnt - SeqMeanCh0*SeqMeanCh0/SeqCnt);
+	  SeqMeanCh1 = SeqMeanSumCh1/SeqCnt;
+	  SeqErrCh1 = sqrt(SeqMeanSumSqCh1/SeqCnt/SeqCnt - SeqMeanCh1*SeqMeanCh1/SeqCnt);
+	  
+	  *SeriesOut << firstRun << "-" << lastRun << "\t" << SeqCnt <<  "\t" << tmpHV <<  "\t" << tmpV_LED << "\t" << SeqMeanCh0  << "\t" << SeqErrCh0 << "\t" << SeqMeanCh1  << "\t" << SeqErrCh1 << "\n";    
+	  
+	  SeqMeanSumCh0 = 0;
+	  SeqMeanSumSqCh0 = 0;
+	  SeqMeanSumCh1 = 0;
+	  SeqMeanSumSqCh1 = 0;
+	  SeqCnt = 0;
+	  firstRun = currentRun;
+	}
+      }
+      if(((fArgs*)vargp)->LEDSeqFl){
+	if(done || V_LED != tmpV_LED){
+	  
+	  
+	  SeqMeanCh0 = SeqMeanSumCh0/SeqCnt ;
+	  SeqErrCh0 = sqrt(SeqMeanSumSqCh0/SeqCnt/SeqCnt - SeqMeanCh0*SeqMeanCh0/SeqCnt);
+	  SeqMeanCh1 = SeqMeanSumCh1/SeqCnt;
+	  SeqErrCh1 = sqrt(SeqMeanSumSqCh1/SeqCnt/SeqCnt - SeqMeanCh1*SeqMeanCh1/SeqCnt);
+	  
+	  *SeriesOut << firstRun << "-" << lastRun  << "\t" << SeqCnt << "\t" << tmpHV <<  "\t" << tmpV_LED << "\t" << SeqMeanCh0  << "\t" << SeqErrCh0 << "\t" << SeqMeanCh1  << "\t" << SeqErrCh1 << "\n";    
+	  
+	  
+	  SeqMeanSumCh0 = 0;
+	  SeqMeanSumSqCh0 = 0;
+	  SeqMeanSumCh1 = 0;
+	  SeqMeanSumSqCh1 = 0;
+	  SeqCnt = 0;
+	  firstRun = currentRun;
+	}
+      }
+      if(!done){
+	SeqMeanSumCh0 += thisData->ch0_mean;
+	SeqMeanSumSqCh0 += thisData->ch0_mean*thisData->ch0_mean;
+	SeqMeanSumCh1 += thisData->ch1_mean;
+	SeqMeanSumSqCh1 += thisData->ch1_mean*thisData->ch1_mean;
+	SeqCnt++;
+      }
+
+    }
+    tmpHV = HV;
+    tmpV_LED  = V_LED;
+      
+    
     if(fOpen){
       if(dataTree){
 	dataTree->Fill();	
@@ -814,6 +1302,16 @@ void* CMData::FillRootTreeThread(void *vargp)
     lQue->pop();
     gSystem->ProcessEvents();
     //previousRun = currentRun;
+    if(done)
+      break;
+    }
+  }
+
+  if(WriteSeriesData){
+
+    if(SeriesOut)
+      if(SeriesOut->is_open())
+	SeriesOut->close();
   }
 
   ofstream *fMissedSmpls = new ofstream("MissedSamples.dat",std::ios_base::app);
