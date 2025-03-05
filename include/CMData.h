@@ -75,6 +75,7 @@ struct rawPkt{
   int vSeq;
   double V_LED;
   double V_LED_Set;
+  double I_LED;
   double V_HV;
   double V_HV_Set;
   //int nRuns;
@@ -132,6 +133,7 @@ public:
   double ch0_sig;
   double ch1_sig;
   double LEDVoltage;
+  double LEDCurrent;
   double HVVoltage;
   double VoltSeq;
   double RunLength;
@@ -170,6 +172,8 @@ struct fArgs{
   bool LEDSeqFl;   //This flag indicated that this is a run sequence in which the LED voltage is varied
   string PMTSer;   //This is the PMT serial number string
   string BaseSer;  //This is the Base serial number string
+
+  double V_LED;
 
   
   // Int_t  *rStartInd;
@@ -210,7 +214,8 @@ private:
     
   string                  IP;
   string                  server;
-  void                   *context;
+  void                   *data_context;
+  void                   *cntr_context;
   void                   *cntr_socket;
   void                   *data_socket;
   pthread_t               thread_cap_id;
@@ -232,12 +237,15 @@ private:
   vector<double>          ADCSignalLevelEr;
   Int_t                   PMTHighVoltage;
   Double_t                LEDLowVoltage;
+  Double_t                LEDCurrent;
   TString                 PMTSerial;
   TString                 BaseSerial;
   Bool_t                  PMTSerialFlag;
   Bool_t                  BaseSerialFlag;
   Bool_t                  PMTHVAutoScan;
   Bool_t                  LEDVAutoScan;
+  TString                 PMTVoltageFileName;
+  Bool_t                  NoHVRampFlag;
 
   char                    Data0;
   char                    Data1;

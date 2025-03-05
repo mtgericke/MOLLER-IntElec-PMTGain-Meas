@@ -73,9 +73,11 @@ CMData::CMData(int *argc, char **argv)
   PMTHVAutoScan = false;
   LEDVAutoScan = false;
   BaseSerialFlag = false;
+  NoHVRampFlag = false;
   PMTHighVoltage = -1;
   PMTSerial = "NONE";
   BaseSerial = "NONE";
+  PMTVoltageFileName = "NONE";
 
   if(nargs >= 2){
     while(n < nargs){
@@ -150,14 +152,15 @@ CMData::CMData(int *argc, char **argv)
 	  n += 2;
 	}
       }
-      else if(arg == Form("-HVS") && n < nargs){
-	
+      else if(arg == Form("-HVS") && n < nargs-1){
+	PMTVoltageFileName = argv[n+1];	
 	dHVSpec = false;
 	// dLEDSpec = false;
 	PMTHVAutoScan = true;
 	dHVSpec = true;
 	LEDVAutoScan = false;
-	n++;
+	
+	n += 2;
 	
       }
       else if(arg == Form("-LEDS") && n < nargs){
@@ -170,15 +173,25 @@ CMData::CMData(int *argc, char **argv)
 	n++;
 	
       }
-      else if(arg == Form("-LV") && n < nargs-1){
+      else if(arg == Form("-NHVR") && n < nargs){
+	
+	NoHVRampFlag = true;
+	n++;
+	
+      }
+      else if(arg == Form("-LV") && n < nargs-2){
 	argp = argv[n+1];
 	if(argp.IsFloat()){
 	  tmpf =  atof(argp.Data());
 	  LEDLowVoltage = tmpf;
-	  dLEDSpec = true;
-	  
-	  n += 2;
 	}
+	argp = argv[n+2];
+	if(argp.IsFloat()){
+	  tmpf =  atof(argp.Data());
+	  LEDCurrent = tmpf;
+	}
+	dLEDSpec = true;
+	n += 3;
       }
       else if(arg == Form("-red") && n < nargs){
 	n++;
@@ -212,7 +225,8 @@ CMData::CMData(int *argc, char **argv)
       
   cntr_socket = NULL;
   data_socket = NULL;
-  context = NULL;
+  data_context = NULL;
+  cntr_context = NULL;
 
   
   // for(int i = 0; i < MAX_HVPS ; i++ )
@@ -272,7 +286,7 @@ void CMData::ReadPMTVoltageValues()
 {   
   double val;
   PMTVoltageFile = NULL;
-  PMTVoltageFile = new ifstream("PMTVoltages.txt");
+  PMTVoltageFile = new ifstream(PMTVoltageFileName.Data());
   if(PMTVoltageFile){
     if(PMTVoltageFile->is_open()){
 
@@ -463,9 +477,12 @@ void* CMData::GetSocket(SockType type)
     server = "tcp://"+ tmp + ":5556";
     cout << "Connecting to server on port 5556:  " << server.data() << endl;
 
-    context = zmq_ctx_new();
-    zmq_ctx_set(context, ZMQ_IO_THREADS, 4);
-    data_socket = zmq_socket(context,ZMQ_SUB);
+    if(!data_context){
+      data_context = zmq_ctx_new();
+    }
+    zmq_ctx_set(data_context, ZMQ_IO_THREADS, 4);
+    zmq_ctx_set(data_context, ZMQ_MAX_SOCKETS, 2 * 65536);
+    data_socket = zmq_socket(data_context,ZMQ_SUB);
     zmq_setsockopt(data_socket, ZMQ_SUBSCRIBE, "ADC",3);
       
     if(zmq_connect (data_socket, server.data()) != 0) {
@@ -479,9 +496,12 @@ void* CMData::GetSocket(SockType type)
     errno = 0;
     server = "tcp://"+ tmp + ":5555";
     cout << "Connecting to server on port 5555:  " << server.data() << endl;
-    context = zmq_ctx_new();
-    zmq_ctx_set(context, ZMQ_IO_THREADS, 4);
-    cntr_socket = zmq_socket(context,ZMQ_REQ);
+    if(!cntr_context){
+      cntr_context = zmq_ctx_new();
+    }
+    zmq_ctx_set(cntr_context, ZMQ_IO_THREADS, 4);
+    zmq_ctx_set(cntr_context, ZMQ_MAX_SOCKETS, 2 * 65536);
+    cntr_socket = zmq_socket(cntr_context,ZMQ_REQ);
 
     if(zmq_connect (cntr_socket, server.data()) != 0) {
       cout << "Failed to Bind ZMQ to port 5555 - quitting this process\n" << endl;
@@ -636,10 +656,10 @@ void CMData::StartDataCollection()
   TString command;
 
   if(PMTHVAutoScan){
-    cout << "\nSet HV to zero and turn on channel, Then wait 30 sec." << endl << endl;
-    SetCAENHVChannelVoltage(1,0,&vRead);
+    //cout << "\nSet HV to zero and turn on channel, Then wait 30 sec." << endl << endl;
+    //SetCAENHVChannelVoltage(1,0,&vRead);
     SetCAENHVChannelOnOff(1,1);
-    std::this_thread::sleep_for(chrono::milliseconds(30000));
+    //std::this_thread::sleep_for(chrono::milliseconds(30000));
   }
   
   for(int n = 0; n < nLev; n++){
@@ -710,11 +730,16 @@ void CMData::StartDataCollection()
       //GetSocket(...) sets the global pointers cntr_socket or data_socket
       //make sure they are close before opening them again for a new message/data transfer.
       if(data_socket) {
-	zmq_close(data_socket);
+	if(zmq_close(data_socket)){
+	  cout << "\n\n\n Could not close socket \n\n\n" << endl;
+	}
 	data_socket = NULL;
       }
       if(cntr_socket) {
-	zmq_close(cntr_socket);
+	if(zmq_close(cntr_socket)){
+	  cout << "\n\n\n Could not close socket \n\n\n" << endl;
+	}
+	// zmq_close(cntr_socket);
 	cntr_socket = NULL;
       }
       
@@ -739,7 +764,8 @@ void CMData::StartDataCollection()
       pkt->run = iSettings.currentRun;
       pkt->vSeq = n+1;
       pkt->V_LED = LEDLowVoltage;
-      pkt->V_LED_Set = LEDLowVoltage; 
+      pkt->V_LED_Set = LEDLowVoltage;
+      pkt->I_LED = LEDCurrent;
       pkt->V_HV_Set = PMTHighVoltage;
       pkt->V_HV = vRead;
       pkt->Rcnt = (n*dNRunsSeq + dNRunSeqCnt)+1;
@@ -776,6 +802,7 @@ void CMData::StartDataCollection()
 	fillThreadArgs->PMTSer = PMTSerial.Data();
 	fillThreadArgs->BaseSerFl = BaseSerialFlag;
 	fillThreadArgs->BaseSer = BaseSerial.Data();      
+	fillThreadArgs->V_LED = LEDLowVoltage;      
 
 	// cout << endl << "Opening Thread !!!!!!!!!!!!!!!!!!!!!!!!!!!" << endl << endl;
 	pthread_create(&thread_plot_id, NULL, FillRootTreeThread, (void*)fillThreadArgs);
@@ -792,11 +819,11 @@ void CMData::StartDataCollection()
     if(LEDVAutoScan)
       system("python3 PSControl.py -k 1");
 
-    if(PMTHVAutoScan) {
+    if(PMTHVAutoScan && !NoHVRampFlag) {
       cout << "\n\nWait for HV to ramp down.\n\n" << endl;
       SetCAENHVChannelVoltage(1,0,&vRead);
      }
-    if(PMTHVAutoScan) SetCAENHVChannelOnOff(1,0);
+    if(PMTHVAutoScan && !NoHVRampFlag) SetCAENHVChannelOnOff(1,0);
     if(PMTHVAutoScan) DeInitCAENHVModule();
     
     return;
@@ -994,7 +1021,12 @@ void* CMData::FillRootTreeThread(void *vargp)
 
     SeriesOutFName = Form("IntMode_HVScan_PMT_%s",((fArgs*)vargp)->PMTSer.data());
     if(((fArgs*)vargp)->BaseSerFl) SeriesOutFName += Form("_Base_%s",((fArgs*)vargp)->BaseSer.data());
-    if(((fArgs*)vargp)->dLEDSpec) SeriesOutFName += "_LEDON";
+    if(((fArgs*)vargp)->dLEDSpec) {
+      if(((fArgs*)vargp)->V_LED == 0)
+	SeriesOutFName += "_LEDOFF";
+      else
+	SeriesOutFName += "_LEDON";
+    }
     SeriesOutFName += ".dat";
     
 
@@ -1033,8 +1065,9 @@ void* CMData::FillRootTreeThread(void *vargp)
     if(start){
       tmpHV = HV;
       tmpV_LED = V_LED;
-      start = 0;
       SeqCnt = 0;
+      firstRun = currentRun;
+      start = 0;
     }
 
     ROOTFileName = Form("IntMode_Run_%04d",currentRun);
@@ -1207,6 +1240,7 @@ void* CMData::FillRootTreeThread(void *vargp)
     thisData->ch1_sig = sqrt(thisData->ch1_ssq/thisData->ch1_data.size()-thisData->ch1_mean*thisData->ch1_mean);
     thisData->HVVoltage = rPkt->V_HV;
     thisData->LEDVoltage = rPkt->V_LED;
+    thisData->LEDCurrent = rPkt->I_LED;
     thisData->VoltSeq = rPkt->vSeq;
     // if(IsDataFileOpen()){
     // 	iSettings.currentData0 = ch0_num;
@@ -1228,6 +1262,7 @@ void* CMData::FillRootTreeThread(void *vargp)
 	SeqMeanSumCh1 += thisData->ch1_mean;
 	SeqMeanSumSqCh1 += thisData->ch1_mean*thisData->ch1_mean;
 	SeqCnt++;
+	lastRun = currentRun;
       }
       
       if( ((fArgs*)vargp)->PMTSeqFl){
