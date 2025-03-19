@@ -704,7 +704,7 @@ void CMData::StartDataCollection()
       cout << "\n\nWaiting for 30 seconds for the PMT to stabalize." << endl  << endl;
       printf("\n");
       std::this_thread::sleep_for(chrono::milliseconds(30000));
-      if(dLEDSpec){
+      if(dLEDSpec && !n){
 
 	pyargs = Form(" -v %.4f",LEDLowVoltage); 
 	command = pyscript + pyargs;
