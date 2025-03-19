@@ -143,6 +143,7 @@ CMData::CMData(int *argc, char **argv)
 	}
       }
       else if(arg == Form("-HV") && n < nargs-1){
+
 	argp = argv[n+1];
 	if(argp.IsFloat()){
 	  tmpi =  atoi(argp.Data());
@@ -166,7 +167,7 @@ CMData::CMData(int *argc, char **argv)
       else if(arg == Form("-LEDS") && n < nargs){
 	
 	dLEDSpec = false; 
-	//dHVSpec = false;
+	//dHVSpc = false;
 	PMTHVAutoScan = false;
 	LEDVAutoScan = true;
 	dLEDSpec = true;
@@ -239,7 +240,7 @@ CMData::CMData(int *argc, char **argv)
   ADCSignalLevelEr.resize(0);
   if(dLEDSpec) ReadLEDVoltageValues();
   if(PMTHVAutoScan) ReadPMTVoltageValues(); // sets PMTHVAutoScan = false, if HV file can't be found/read.
-  if(PMTHVAutoScan) InitCAENHVModule(); // sets PMTHVAutoScan = false, if HV power supply can't be initialized.
+  if(PMTHVAutoScan || dHVSpec) InitCAENHVModule(); // sets PMTHVAutoScan = false, if HV power supply can't be initialized.
   std::set_new_handler(0);
    StartDataCollection();
 
@@ -661,6 +662,13 @@ void CMData::StartDataCollection()
     SetCAENHVChannelOnOff(1,1);
     //std::this_thread::sleep_for(chrono::milliseconds(30000));
   }
+  if(dHVSpec && !PMTHVAutoScan){
+    SetCAENHVChannelOnOff(1,1);
+    cout << "\nSetting HV." << endl  << endl;
+    SetCAENHVChannelVoltage(1,PMTHighVoltage,&vRead);      
+    cout << "\nWaiting for 30 seconds to let new voltage level stabalize." << endl  << endl;
+    std::this_thread::sleep_for(chrono::milliseconds(30000));
+  }
   
   for(int n = 0; n < nLev; n++){
 
@@ -676,10 +684,10 @@ void CMData::StartDataCollection()
       }
       sleep(2);
     
-      pyargs = Form(" -v %.2f",vLev); 
+      pyargs = Form(" -v %.4f",vLev); 
       command = pyscript + pyargs;
       system(command.Data());
-      cout << "\nWaiting for 10 seconds to let new voltage level stabilize." << endl  << endl;
+      cout << "\nWaiting for 10 seconds to let new voltage level stabalize." << endl  << endl;
       std::this_thread::sleep_for(chrono::milliseconds(10000));
     }
     else if(PMTHVAutoScan){
@@ -696,6 +704,15 @@ void CMData::StartDataCollection()
       cout << "\n\nWaiting for 30 seconds for the PMT to stabalize." << endl  << endl;
       printf("\n");
       std::this_thread::sleep_for(chrono::milliseconds(30000));
+      if(dLEDSpec){
+
+	pyargs = Form(" -v %.4f",LEDLowVoltage); 
+	command = pyscript + pyargs;
+	system(command.Data());
+	cout << "\nWaiting for 10 seconds to let new voltage level stabalize." << endl  << endl;
+	std::this_thread::sleep_for(chrono::milliseconds(10000));
+
+      }
     }
 
     
